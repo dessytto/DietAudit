@@ -1,11 +1,8 @@
 from flask import render_template
 from flaskexample import app
-#from sqlalchemy import create_engine
-#from sqlalchemy_utils import database_exists, create_database
-import psycopg2
 from flask import request
-#from .AModel import ModelIt
-#from .Nutrilist_backend import sort_and_pick
+from flask import Response
+
 
 import numpy as np
 import pandas as pd
@@ -14,14 +11,14 @@ import seaborn as sns
 from sklearn.metrics.pairwise import cosine_similarity
 from sklearn.decomposition import NMF
 import random
-import io # trying to show the bar plot
-from flask import Response
+import io # to show the bar plot
 from matplotlib.backends.backend_agg import FigureCanvasAgg as FigureCanvas
 from matplotlib.figure import Figure
 
 
 #     
 # 
+@app.route('/')
 @app.route('/input')
 def nut_user_input():
     return render_template("input.html")
@@ -42,38 +39,31 @@ def call_sort_and_pick():
     #return(str(calories))
 
     diet = request.form['diet']
-    # #return str((request.form['group']))+str((request.form['age']))
-    # diet_none, diet_vegan, diet_keto, diet_lowfat = 0, 0, 0, 0
-    # if request.form['diet'] == 'diet_none':
-    #     diet_none = 1
-    # if request.form['diet'] == 'diet_vegan':
-    #     diet_vegan = 1
-    # if request.form['diet'] == 'diet_keto':
-    #     diet_keto = 1
-    # if request.form['diet'] == 'diet_lowfat':
-    #     diet_lowfat = 1
 
-    bad_foods = str(request.form['bad_foods'])    
-    #return life_group
+    bad_foods = str(request.form['bad_foods']).strip()
+    if not bad_foods:
+    	bad_foods = 'duck, natto'   
+       
+    #return bad_foods
 
-    ## Do smart science-y stuff
-   
+    
+###########################  Import and wrangle the data ###########################
 
     bad_foods = [x.strip() for x in bad_foods.split(',')]
     try:
         #data_all = pd.read_csv("data_cluster_Ni_noNaN.csv")
         if diet == 'diet_none':
-            data = pd.read_csv("ABBREV_none_no_cereal.csv")
+            data = pd.read_csv("none_no_cereal.csv")
         if diet == 'diet_vegan':
-            data = pd.read_csv("ABBREV_vegan_no_cereal.csv")
+            data = pd.read_csv("vegan_no_cereal.csv")
         if diet == 'diet_vegetarian':
-            data = pd.read_csv("ABBREV_vegetarian_no_cereal.csv")
+            data = pd.read_csv("vegetarian_no_cereal.csv")
         if diet == 'diet_pescatarian':
-            data = pd.read_csv("ABBREV_pescatarian_no_cereal.csv")
+            data = pd.read_csv("pescatarian_no_cereal.csv")
         if diet == 'diet_lowfat':
-            data = pd.read_csv("ABBREV_lowfat.csv")
+            data = pd.read_csv("lowfat.csv")
         if diet == 'diet_lowcarb':
-            data = pd.read_csv("ABBREV_lowcarb.csv")
+            data = pd.read_csv("lowcarb.csv")
         data_RDA_all = pd.read_csv("RDA_micros_all.csv")
         data_RDA = data_RDA_all.loc[data_RDA_all.Life_group == life_group].drop(['Life_group'], axis=1)
         #data_RDA = pd.read_csv("RDA_micros.csv")
@@ -91,11 +81,17 @@ def call_sort_and_pick():
                           ',ALL GRDS', ',ALL G', ',DENCUT', ',FLAKED,CHOPD,FORMED & THINLY SLICED',
                           ',BROOK,NEW YORK STATE', ',BRLD', ',KIPPERED', ',NZ,IMP',
                           ' - FULLY FRENCHED', ',NORTHERN', ',KING', ',SPANISH', 
-                          ',NATIVE', 'SUNFISH,', ',MXD SP'), 
+                          ',NATIVE', 'SUNFISH,', ',MXD SP', ',STEWING', ',MEAT ONLY', ',LO MOIST',
+                          ',RED FAT', ',WNTR', ',MIXED SPECIES', ',FLORIDA'), 
                          '', regex=True)
-
+	
+    data2 = data2.replace(',',', ', regex = True)
     data2 = data2.replace(',LN',',LEAN', regex = True)
     data2 = data2.replace(' LN',' LEAN', regex = True)
+    data2 = data2.replace('LOFAT','LOW FAT', regex = True)
+    data2 = data2.replace('LOWFAT','LOW FAT', regex = True)
+    data2 = data2.replace('DK MEAT','DARK MEAT', regex = True)
+    data2 = data2.replace('LT MEAT','LIGHT MEAT', regex = True)
     data2 = data2.replace('FRSH','FRESH', regex = True)
     data2 = data2.replace('VAR','VARIETY', regex = False)
     data2 = data2.replace('PLN','PLAIN', regex = True)
@@ -118,24 +114,24 @@ def call_sort_and_pick():
     data2 = data2.replace('BTTRMLK','BUTTERMILK', regex = True)
     data2 = data2.replace(' BNS',' BEANS', regex = True)
     data2 = data2.replace(',SML',', SMALL', regex = True)
+    data2 = data2.replace(', SML',', SMALL', regex = True)
+    data2 = data2.replace(',SWT',',SWEET', regex = True)
 
 
      
-    #data2 = data[np.isfinite(data['GmWt_1'])]
-    #data2 = data
+	# Keep foods with specified serving sizes only
     data2 = data2[np.isfinite(data['GmWt_1'])]
     # We dropped some rows, want to re-index to get rid of nan rows?
     data2 = data2.reset_index(drop=True) # reindex() # Gah!
-    #data2a = data[pd.notnull(data['GmWt_1'])]
+    # Drop non-numeric columns
     all_nutr_data = data2.drop(['NDB_No', 'Shrt_Desc', 'GmWt_1', 'GmWt_Desc1', 'GmWt_2', 'GmWt_Desc2', 'Refuse_Pct'], axis = 1)
+    # Fill NaN-s with zeros
     all_nutr_data = all_nutr_data.fillna(0)
 
 
-#my_life_group =data_RDA.loc[data_RDA.Life_group == 'fu50']
-
-# Normalize nutrients per weight of serving size (currently given per 100g)
+	# Normalize nutrients per weight of serving size (currently given per 100g)
     data_scaled_Wt = all_nutr_data.multiply(data2['GmWt_1']/100, axis = 0)
-#Halving large-calorie servings
+	# Halving large-calorie servings
     row_indices = (data_scaled_Wt['Energ_Kcal'] > 400)
     data_scaled_Wt.loc[row_indices] = data_scaled_Wt.loc[row_indices]/2.0
     indices = [i for i, val in enumerate(row_indices) if val]  #
@@ -143,7 +139,7 @@ def call_sort_and_pick():
         oldstring = data2['GmWt_Desc1'][irow]
         data2.at[irow, 'GmWt_Desc1']= oldstring.replace(('1'), '1/2')
     
-
+	# Create subsets of the data for micronutrients and macronutrients
     micro_data_0 = data_scaled_Wt[['Calcium_mg','Iron_mg','Magnesium_mg','Phosphorus_mg','Zinc_mg','Copper_mg','Manganese_mg','Selenium_mcg','Vit_C_mg',
                          'Thiamin_mg','Riboflavin_mg','Niacin_mg','Panto_Acid_mg','Vit_B6_mg','Folate_Tot_mcg',
                          'Choline_Tot_mg','Vit_B12_mcg','Vit_A_IU',
@@ -156,9 +152,9 @@ def call_sort_and_pick():
     Nutri_index = micro_data_scaled_RDA.sum(axis = 1)
     Nutri_index = pd.DataFrame(Nutri_index)
     Nutri_index.columns = ['Nutri_index']
-
-    ########################### NMF ##############################
-
+    
+    
+    ########################### NMF to obtain food categories ##############################
 
     micro_data_RDA = micro_data_scaled_RDA #.fillna(0)
     micro_data_RDA_T = micro_data_RDA.transpose()
@@ -191,7 +187,7 @@ def call_sort_and_pick():
     data_everything = data_everything.sort_values(['Cluster_ID','Nutri_index'], ascending=False)
     # ! the barcode lookup table is the dataframe W_df_nuts_T !
 
-    # Optimizer
+     ########################### Optimizer  ###########################
 
     # choose 1 great food to start with
     food1_options = data_everything.sort_values(['Nutri_index'], ascending=False)
@@ -204,6 +200,7 @@ def call_sort_and_pick():
     topchoices_nuts = pd.DataFrame()
     depletedclusters = [] # keep track if no foods in the cluster are good for us anymore
     
+    # Greedy algorithm
     while totalcal < (int(calories)-200):
         if len(food_list) == 0: # if first food
            food1 = food1_options.sample(n=1)
@@ -292,17 +289,15 @@ def call_sort_and_pick():
 
     # Calculating the nutrients in our food list
     final_list_df = pd.DataFrame(final_list, columns = ['calories_per_serving', 'food','serving'])
-
     final_list_with_nuts = data_everything[data_everything['Shrt_Desc'].str.lower().isin(final_list_df['food'])]
-
-
     goals = final_list_with_nuts.iloc[:, 4:29].sum(axis = 0)
     goals = pd.DataFrame(goals)
     goals_micronuts = goals.drop(['Energ_Kcal', 'Lipid_Tot_g', 'Protein_g', 'Fiber_TD_g', 'Carbohydrt_g'], axis = 0)
     goals_micronuts = goals_micronuts.sort_values([0], ascending = False)
     goals_micronuts[0] = goals_micronuts[0].apply(lambda x: round(x*100))
 
-
+	 ########################### Chart  ###########################
+	 
     # Cap them at max value (percentage) to plot
     temporary_plotting_threshold = 100 
     goals_micronuts[0] = goals_micronuts[0].apply(lambda x: min(x,temporary_plotting_threshold))
@@ -310,76 +305,20 @@ def call_sort_and_pick():
     final_nutrients_list = goals_micronuts.index.tolist()
     final_nutrients_values_list = goals_micronuts.values.tolist()
 
-
-    final_nutrients_values_list = [item for sublist in final_nutrients_values_list for item in sublist]   
-
-
-
-
-#old       
-    #fig = create_figure()   
-    fig = Figure()   
-    #output = io.BytesIO()
-    #FigureCanvas(fig).print_png(output)
-
-    #plt.bar([1,2,3], [5,3,9])#, color=c, width=.5)
-    ax = fig.add_subplot(1,1,1)
-    #ax = sns.barplot(x=[1,2,3], y=[4,5,6], palette="Blues_d",ax=ax)
-    #ax = fig.add_subplot(1,1,1)
-    #ax.plot([1,2,3], [12,13,50])
-    #return str(size(final_nutrients_list))
-    #ax.bar(final_nutrients_list,final_nutrients_values_list)
-    #ax.barplot()
-    ax = sns.barplot(x=final_nutrients_list, y=final_nutrients_values_list, palette="Blues_d",ax=ax)
-    #plt.xticks(rotation=90)
-    #ax.savefig("flaskexample/static/img/test6_fid.png", dpi = 150)
-
-    
+    final_nutrients_values_list = [item for sublist in final_nutrients_values_list for item in sublist]    
     final_nutrients_values_list = [str(i) for i in final_nutrients_values_list] # turn floats into strings
+	
+    for i in range(len(final_nutrients_list)):
+        final_nutrients_list[i] = final_nutrients_list[i].replace('_',' ')
+        final_nutrients_list[i] = final_nutrients_list[i].replace(' mg',', mg ')
+        final_nutrients_list[i] = final_nutrients_list[i].replace(' mcg',', mcg ')
+        final_nutrients_list[i] = final_nutrients_list[i].replace('Tot','')
+        final_nutrients_list[i] = final_nutrients_list[i].replace(' ,',',')
+        final_nutrients_list[i] = final_nutrients_list[i].replace('IU',', IU ')
+
 
     return render_template('output_list.html', food_table=final_list, title='OptimalNutrion', max=150, labels=final_nutrients_list, values=final_nutrients_values_list)
-    ##unsorted_table = pd.read_csv("data_cluster_Ni_noNan_small.csv")
            
-    # foods, Nis, servings = sort_and_pick(unsorted_table)
-    
-    # pd.DataFrame(foods)             
-    
-    # final_list = []
-    # for i in range(0,len(foods)):
-    #     food = foods[i].lower() # pd.DataFrame([   foods[i]   ]) # columns=')
-    #     serving = servings[i] # pd.DataFrame([  servings[i]  ])
-    #     final_list.append(dict(food=food, serving=serving))
-    # #print(final_list)
-
-# @app.route('/flaskexample/static/img/test3_fid.png')
-# def showimage():
-#     fig = create_figure()
-#     output = io.BytesIO()
-#     FigureCanvas(fig).print_png(output)
-#     return Response(output.getvalue(), mimetype='image/png')
-
-# def create_figure(): #final_nutrients_list,final_nutrients_values_list
-#     #fig = Figure()
-#     #axis = fig.add_subplot(1, 1, 1)
-#     #xs = range(100)
-#     #ys = [random.randint(1, 50) for x in xs]
-#     #axis.plot(xs, ys)
-#     #return fig   
-
-#     fig = Figure()  
-#     ax = fig.add_subplot(1,1,1)
-#     #ax = sns.barplot(x=final_nutrients_list, y=final_nutrients_values_list, palette="Blues_d",ax=ax)
-#     ax = sns.barplot(x=[1,2,3], y=[4,5,6], palette="Blues_d",ax=ax)
-#     #ax2 = sns.lineplot(x = final_nutrients_list, y = 1, linestyle='--')
-#     #plt.plot([1,2,3], [1,2,3])
-#     ax.plot([1,2,3], [12,13,10])
-#     #ax.barplot([1,2,3,2])
-#     plt.xticks(rotation=90)
-#     plt.savefig("flaskexample/static/img/test3_fid.png", dpi = 150)
-#     return fig
-
-
-
 
 
 @app.route('/input_page')
