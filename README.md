@@ -1,7 +1,7 @@
 # DietAudit (Insight Data Science project): Nutritional adviser for people following restrictive diets.
 
 ## Motivation:
-In the US, millions of people follow restrictive diets which exclude entire food groups. In addition to that, people's personal preferences further limit their food choices. Long-term adherence to such diets often results in vitamin and mineral deficiencies.
+In the US, millions of people follow restrictive diets which exclude entire food groups. In addition, people's personal preferences further limit their food choices. Long-term adherence to such diets often results in vitamin and mineral deficiencies.
 
 I developed a nutritional adviser which generates shopping suggestions for groceries based on user input. The suggestions are optimized for nutritional density given the user's personal dietary constraints and calorie restrictions.
 
